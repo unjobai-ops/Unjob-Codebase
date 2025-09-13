@@ -12,6 +12,17 @@ const generateToken = (userId) => {
   });
 };
 
+// Generate admin JWT token with different secret
+const generateAdminToken = (adminId) => {
+  return jwt.sign(
+    { adminId, isAdmin: true },
+    process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET + "_admin",
+    {
+      expiresIn: process.env.JWT_EXPIRES_IN || "7d",
+    }
+  );
+};
+
 // Send token response
 const sendTokenResponse = (user, statusCode, res, message) => {
   const token = generateToken(user._id);
@@ -25,6 +36,22 @@ const sendTokenResponse = (user, statusCode, res, message) => {
     message,
     token,
     user: userResponse,
+  });
+};
+
+// Send admin token response
+const sendAdminTokenResponse = (admin, statusCode, res, message) => {
+  const token = generateAdminToken(admin._id);
+
+  // Remove password from output
+  const adminResponse = admin.toObject();
+  delete adminResponse.password;
+
+  res.status(statusCode).json({
+    success: true,
+    message,
+    token,
+    admin: adminResponse,
   });
 };
 
@@ -371,6 +398,101 @@ const refreshToken = catchAsync(async (req, res, next) => {
   sendTokenResponse(user, 200, res, "Token refreshed successfully");
 });
 
+// @desc    Admin login
+// @route   POST /api/auth/admin/login
+// @access  Public
+const adminLogin = catchAsync(async (req, res, next) => {
+  const { email, password } = req.body;
+
+  // console.log("[Auth] Admin login attempt for:", email);
+
+  // Check if it's the default admin credentials
+  const isDefaultAdmin = 
+    email.toLowerCase() === "admin@gmail.com" && 
+    password === "admin@unjob.ai";
+
+  // console.log("[Auth] Is default admin:", isDefaultAdmin);
+
+  if (isDefaultAdmin) {
+    // Create a temporary admin object for the default admin
+    const defaultAdmin = {
+      _id: "admin_default",
+      name: "Default Admin",
+      email: "admin@gmail.com",
+      role: "admin",
+      isActive: true,
+      toObject: function() {
+        return {
+          _id: this._id,
+          name: this.name,
+          email: this.email,
+          role: this.role,
+          isActive: this.isActive
+        };
+      }
+    };
+    
+    // console.log("[Auth] Default admin login successful");
+    return sendAdminTokenResponse(defaultAdmin, 200, res, "Admin login successful");
+  }
+
+  // Find admin user by email and include password
+  const admin = await User.findOne({ 
+    email, 
+    role: "admin" 
+  }).select("+password");
+
+  if (!admin) {
+    return next(new AppError("Invalid admin credentials", 401));
+  }
+
+  // Check password
+  const isPasswordValid = await admin.comparePassword(password);
+  if (!isPasswordValid) {
+    return next(new AppError("Invalid admin credentials", 401));
+  }
+
+  // Check if admin is active
+  if (!admin.isActive) {
+    return next(new AppError("Admin account is deactivated", 401));
+  }
+
+  // Update last login
+  admin.lastLogin = new Date();
+  await admin.save({ validateBeforeSave: false });
+
+  // console.log("[Auth] Admin login successful for:", admin._id);
+
+  sendAdminTokenResponse(admin, 200, res, "Admin login successful");
+});
+
+// @desc    Initialize default admin (for setup purposes)
+// @route   POST /api/auth/admin/initialize
+// @access  Public (should be removed in production)
+const initializeAdmin = catchAsync(async (req, res, next) => {
+  // Check if admin already exists
+  const existingAdmin = await User.findOne({ role: "admin" });
+  if (existingAdmin) {
+    return next(new AppError("Admin already exists", 400));
+  }
+
+  // Create default admin user
+  const admin = await User.create({
+    name: "Default Admin",
+    email: "admin@gmail.com",
+    password: "admin@unjob.ai",
+    role: "admin",
+    provider: "email",
+    verified: true,
+    isVerified: true,
+    isActive: true,
+  });
+
+  // console.log("[Auth] Default admin created:", admin._id);
+
+  sendAdminTokenResponse(admin, 201, res, "Default admin created successfully");
+});
+
 module.exports = {
   register,
   login,
@@ -383,4 +505,6 @@ module.exports = {
   verifyEmail,
   logout,
   refreshToken,
+  adminLogin,
+  initializeAdmin,
 };

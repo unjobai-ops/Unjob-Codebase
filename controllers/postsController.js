@@ -219,31 +219,30 @@ const updatePost = catchAsync(async (req, res, next) => {
 // @access  Private
 const deletePost = catchAsync(async (req, res, next) => {
   const post = await Post.findById(req.params.id);
-
   if (!post) {
     return next(new AppError("Post not found", 404));
   }
 
-  // Check if user owns the post
-  if (post.author.toString() !== req.user._id.toString()) {
+  // Ensure post.author is compared correctly
+  const postAuthorId = post.author._id ? post.author._id.toString() : post.author.toString();
+  if (postAuthorId !== req.user._id.toString()) {
     return next(new AppError("Not authorized to delete this post", 403));
   }
 
-  // Soft delete
-  post.isDeleted = true;
-  post.deletedAt = new Date();
-  await post.save();
+  // Hard delete: remove the post document from the collection
+  await Post.deleteOne({ _id: post._id });
 
-  // Update user's posts count
+  // Update user stats only if field exists
   await User.findByIdAndUpdate(req.user._id, {
     $inc: { "stats.postsCount": -1 },
-  });
+  }, { new: true, strict: false });
 
   res.status(200).json({
     success: true,
     message: "Post deleted successfully",
   });
 });
+
 
 // @desc    Like/Unlike a post
 // @route   POST /api/posts/:id/like
@@ -323,13 +322,15 @@ const deleteComment = catchAsync(async (req, res, next) => {
     return next(new AppError("Post not found", 404));
   }
 
-  const comment = post.comments.id(commentId);
+  const comment = post.comments.find(
+    (c) => c._id.toString() === commentId.toString()
+  );
 
   if (!comment) {
     return next(new AppError("Comment not found", 404));
   }
 
-  // Check if user owns the comment or the post
+  // Check if user owns the comment or is the post author
   if (
     comment.user.toString() !== req.user._id.toString() &&
     post.author.toString() !== req.user._id.toString()
@@ -337,16 +338,22 @@ const deleteComment = catchAsync(async (req, res, next) => {
     return next(new AppError("Not authorized to delete this comment", 403));
   }
 
-  comment.remove();
+  // Remove the comment
+  post.comments = post.comments.filter(
+    (c) => c._id.toString() !== commentId.toString()
+  );
+
+  // Update comments count
   post.commentsCount = post.comments.length;
+
   await post.save();
 
   res.status(200).json({
     success: true,
     message: "Comment deleted successfully",
-    commentsCount: post.commentsCount,
   });
 });
+
 
 // @desc    Get user's posts
 // @route   GET /api/posts/user/:userId
@@ -404,11 +411,10 @@ const getPortfolioPosts = catchAsync(async (req, res, next) => {
   const skip = (page - 1) * limit;
 
   const filterQuery = {
-    postType: "portfolio",
-    "portfolioData.isPortfolioItem": true,
-    isActive: true,
-    isDeleted: false,
-  };
+  postType: "portfolio",
+  isActive: true,
+  isDeleted: false,
+};
 
   if (author) filterQuery.author = author;
   if (category) filterQuery.category = category;

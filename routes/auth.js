@@ -12,6 +12,8 @@ const {
   verifyEmail,
   logout,
   refreshToken,
+  adminLogin,
+  initializeAdmin,
 } = require("../controllers/authController");
 
 const {
@@ -42,6 +44,10 @@ router.post(
 );
 router.post("/reset-password/:token", passwordResetLimiter, resetPassword);
 router.get("/verify-email/:token", verifyEmail);
+
+// Admin routes
+router.post("/admin/login", authLimiter, validateUserLogin, adminLogin);
+// router.post("/admin/initialize", initializeAdmin); // Remove this in production
 
 // Protected routes
 router.use(authMiddleware); // All routes below require authentication

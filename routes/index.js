@@ -1,6 +1,6 @@
 // routes/index.js
 const express = require("express");
-const { authMiddleware } = require("../middleware/auth");
+const { authMiddleware, adminAuthMiddleware } = require("../middleware/auth");
 
 // Import all route modules
 const authRoutes = require("./auth");
@@ -61,7 +61,7 @@ router.use("/notifications", authMiddleware, notificationRoutes);
 router.use("/projects", authMiddleware, projectRoutes);
 router.use("/payments", authMiddleware, paymentRoutes);
 router.use("/freelancer", authMiddleware, freelancerRoutes);
-router.use("/admin", authMiddleware, adminRoutes);
+router.use("/admin", adminRoutes);
 
 // API Statistics (public)
 router.get("/stats", async (req, res) => {

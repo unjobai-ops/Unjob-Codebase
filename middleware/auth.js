@@ -48,6 +48,77 @@ const authMiddleware = async (req, res, next) => {
   }
 };
 
+// Admin authentication middleware
+const adminAuthMiddleware = async (req, res, next) => {
+  try {
+    const token = req.header("Authorization")?.replace("Bearer ", "");
+
+    if (!token) {
+      return res.status(401).json({
+        error: "Access denied. Admin token required.",
+      });
+    }
+
+    const adminSecret = process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET + "_admin";
+    const decoded = jwt.verify(token, adminSecret);
+
+    // Check if it's an admin token
+    if (!decoded.isAdmin) {
+      return res.status(401).json({
+        error: "Invalid admin token.",
+      });
+    }
+
+    // Handle default admin
+    if (decoded.adminId === "admin_default") {
+      req.user = {
+        _id: "admin_default",
+        name: "Default Admin",
+        email: "admin@gmail.com",
+        role: "admin",
+        isActive: true
+      };
+      return next();
+    }
+
+    // Find admin user by ID from token
+    let admin = await User.findById(decoded.adminId).select("-password");
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(401).json({
+        error: "Invalid admin token. Admin not found.",
+      });
+    }
+
+    if (!admin.isActive) {
+      return res.status(401).json({
+        error: "Admin account is deactivated.",
+      });
+    }
+
+    req.user = admin;
+    next();
+  } catch (error) {
+    console.error("Admin auth middleware error:", error);
+
+    if (error.name === "JsonWebTokenError") {
+      return res.status(401).json({
+        error: "Invalid admin token.",
+      });
+    }
+
+    if (error.name === "TokenExpiredError") {
+      return res.status(401).json({
+        error: "Admin token expired.",
+      });
+    }
+
+    res.status(500).json({
+      error: "Admin authentication error.",
+    });
+  }
+};
+
 // Middleware to check if user has specific role
 const requireRole = (roles) => {
   return (req, res, next) => {
@@ -160,7 +231,21 @@ const requireSubscription = (req, res, next) => {
 };
 
 // Admin only middleware
-const requireAdmin = requireRole("admin");
+const requireAdmin = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({
+      error: "Authentication required.",
+    });
+  }
+
+  if (req.user.role !== "admin") {
+    return res.status(403).json({
+      error: "Access denied. Admin privileges required.",
+    });
+  }
+
+  next();
+};
 
 // Freelancer only middleware
 const requireFreelancer = requireRole("freelancer");
@@ -173,6 +258,7 @@ const requireFreelancerOrHiring = requireRole(["freelancer", "hiring"]);
 
 module.exports = {
   authMiddleware,
+  adminAuthMiddleware,
   requireRole,
   requireCompleteProfile,
   optionalAuth,

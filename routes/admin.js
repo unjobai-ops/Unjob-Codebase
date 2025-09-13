@@ -1,6 +1,6 @@
 // routes/admin.js
 const express = require("express");
-const { requireAdmin } = require("../middleware/auth");
+const { adminAuthMiddleware, requireAdmin } = require("../middleware/auth");
 const {
   validatePagination,
   validateObjectId,
@@ -9,6 +9,7 @@ const {
 const router = express.Router();
 
 // All routes require admin access
+router.use(adminAuthMiddleware);
 router.use(requireAdmin);
 
 // Dashboard and analytics
